@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -140,5 +141,32 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 MAILERS = {
     'default': {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+    },
+}
+
+# -----------------------------------------------------------------------------
+# Celery & Celery Beat Configuration
+# -----------------------------------------------------------------------------
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+CELERY_ENABLE_UTC = True
+
+# Task execution safeguards
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 5 * 60  # Hard timeout after 5 minutes
+CELERY_TASK_SOFT_TIME_LIMIT = 4 * 60  # Soft exception after 4 minutes
+
+# Celery Beat Periodic Schedule
+# Ticks every minute to evaluate teams that hit their scheduled local time
+CELERY_BEAT_SCHEDULE = {
+    "evaluate-due-standups-every-minute": {
+        "task": "apps.standups.tasks.check_and_compile_due_teams_task",
+        "schedule": 60.0,  # Run every 60 seconds
+        "options": {"expires": 50.0},
     },
 }
