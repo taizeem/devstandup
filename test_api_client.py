@@ -12,7 +12,7 @@ USERNAME = "dave_discord"
 PASSWORD = "pass123"
 
 # Target Team ID
-TEAM_ID = 1
+TEAM_ID = 4
 
 SUBMIT_URL = f"{BASE_URL}/api/v1/standups/submit/{TEAM_ID}/"
 HISTORY_URL = f"{BASE_URL}/api/v1/standups/history/?team_id={TEAM_ID}"
