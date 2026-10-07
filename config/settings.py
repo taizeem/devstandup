@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'rest_framework',
 
     'apps.teams.apps.TeamsConfig',
+    'apps.standups.apps.StandupsConfig',
 
 ]
 
