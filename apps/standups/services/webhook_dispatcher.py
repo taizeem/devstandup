@@ -36,7 +36,7 @@ class WebhookDispatcher:
         try:
             response = requests.post(
                 url,
-                data=json.dumps(payload),
+                data=json.dumps(payload,ensure_ascii=False).encode("utf-8"),
                 headers=headers,
                 timeout=cls.TIMEOUT_SECONDS
             )
