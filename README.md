@@ -318,10 +318,11 @@ Verify real-world webhook rendering directly against Discord or test endpoints:
 
 ```bash
 # Tests complete database seed, compilation digest, and late submission embed
-uv run python test_api_client.py
+uv run python scripts/smoke_api.py
+
 
 # Tests authenticated REST API submissions, validation errors, and updates
-uv run python test_discord_flow.py
+uv run python scripts/smoke_discord.py
 
 ```
 
