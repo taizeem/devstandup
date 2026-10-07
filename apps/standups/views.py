@@ -13,32 +13,22 @@ from .serializers import (
     StandupDigestSerializer,
 )
 from .services.compilation import StandupCompilationService
-from .services.webhook_dispatcher import WebhookDispatcher
+from .tasks import dispatch_late_entry_webhook_task, compile_team_digest_task
+
 
 class StandupSubmissionAPIView(APIView):
-    """
-    Submits a standup entry for the authenticated user for the given team.
-    Determines if submission is late based on team deadline & existing digest state.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, team_id: int):
         team = get_object_or_404(Team, id=team_id, is_active=True)
-        member = get_object_or_404(
-            TeamMember,
-            team=team,
-            user=request.user,
-            is_active=True
-        )
+        member = get_object_or_404(TeamMember, team=team, user=request.user, is_active=True)
 
         serializer = StandupEntrySubmissionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Team local time
         team_now = StandupCompilationService.get_team_local_time(team)
         target_date = team_now.date()
 
-        # Check existing digest and determine if late
         digest = StandupDigest.objects.filter(team=team, digest_date=target_date).first()
         is_already_compiled = digest.is_compiled if digest else False
         is_past_deadline = team_now.time() >= team.standup_time
@@ -55,27 +45,25 @@ class StandupSubmissionAPIView(APIView):
                     "blockers": serializer.validated_data.get("blockers", "None"),
                     "is_late": is_late,
                     "digest": digest,
-                }
+                },
             )
 
-            # If submitted late after the digest was compiled, append and dispatch a late update
             if is_late and digest and digest.is_compiled:
-                # Remove from missing members if previously flagged
                 if member.display_name in digest.missing_members_snapshot:
                     digest.missing_members_snapshot.remove(member.display_name)
                     digest.save(update_fields=["missing_members_snapshot"])
 
-                WebhookDispatcher.send_late_entry(entry)
+                # Enqueue non-blocking async webhook delivery
+                transaction.on_commit(
+                    lambda: dispatch_late_entry_webhook_task.delay(entry_id=entry.id)
+                )
 
         response_serializer = StandupEntryDetailSerializer(entry)
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(response_serializer.data, status=response_status)
 
+
 class StandupHistoryViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    Queryable full history filtered by member and date range.
-    GET /api/v1/standups/history/?member_id=X&team_id=Y&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
-    """
     serializer_class = StandupEntryDetailSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -105,20 +93,20 @@ class StandupHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
         return qs
 
+
 class TriggerDigestCompilationAPIView(APIView):
-    """
-    On-demand compilation trigger for a specific team.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, team_id: int):
         team = get_object_or_404(Team, id=team_id)
         target_date_str = request.data.get("date")
-        target_date = date.fromisoformat(target_date_str) if target_date_str else None
 
-        digest = StandupCompilationService.compile_team_digest(
-            team=team,
-            target_date=target_date,
-            dispatch_webhook=True
+        # Offload compilation execution to Celery
+        task = compile_team_digest_task.delay(
+            team_id=team.id,
+            target_date_str=target_date_str,
         )
-        return Response(StandupDigestSerializer(digest).data, status=status.HTTP_200_OK)
+        return Response(
+            {"message": "Compilation task enqueued", "task_id": task.id},
+            status=status.HTTP_202_ACCEPTED,
+        )
